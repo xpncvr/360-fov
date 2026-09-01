@@ -2,7 +2,7 @@
 
 This mod blends various projections to allow FOV to be set up to 400° and still maintain high visual quality.
 
-[Download it on modrinth here](https://modrinth.com/project/360-fov)
+**[Download it from Modrinth here](https://modrinth.com/project/360-fov)**
 
 ## Preview
 
@@ -28,8 +28,7 @@ shader switches through a chain of projections:
 
 ## Usage
 
-Raise the FOV slider in vanilla video settings; the projection follows it automatically. No
-keybind or toggle, it's a drop-in replacement for how the world is rendered at wide FOV.
+Raise the FOV slider in vanilla video settings and the projection follows it automatically.
 
 ## Config
 
