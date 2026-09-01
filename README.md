@@ -1,25 +1,14 @@
-# 360 FOV
+# 360 FOV (Up to 400° FOV)
 
-This mod blends various projections to allow FOV to be set up to 400° and still maintaining visual quality.
+This mod blends various projections to allow FOV to be set up to 400° and still maintain high visual quality.
 
-> Note: \
-> **FOV mismatch:** Vanilla's slider sets a vertical FOV while the projection shader works in horizontal FOV, so the same number maps to a different angular extent depending on your aspect ratio and which projection stage you're in. \
-> **Performance:** Rendering a full surround view can take up to six world passes per frame instead of one (can decrease FPS) \
-> **Bugs:** Several rendering edge cases (billboard/particle handling, shader mod compatibility, untested corner geometry, etc.) haven't been verified in-game yet
-
-Get it on Modrinth [360 FOV](https://modrinth.com/project/360-fov)
+[Download it on modrinth here](https://modrinth.com/project/360-fov)
 
 ## Preview
 
-<details>
-  <summary>Click to expand</summary>
-  With mod:
-  <br><b>400°</b><br>
-  <img width="960" height="526" alt="400° with mod" src="https://github.com/user-attachments/assets/ea350dca-4905-4ef3-a986-ab85eec866d1" />
-  <br><b>280°</b><br>
-  <img width="960" height="526" alt="280° with mod" src="https://github.com/user-attachments/assets/74525003-9442-44bf-bb1c-b1ec8d778d97" />
+<img width="720" height="405" alt="demo" src="https://github.com/user-attachments/assets/45b6451e-feab-4d4f-87f5-b6c3046f80fb" />
 
-</details>
+110° to 400°
 
 ## What it does
 
@@ -54,6 +43,11 @@ restart):
 | `faceSizeCap` | `2048` | Upper bound in pixels on the six capture faces. Raising it sharpens high FOVs at a steep VRAM cost. Clamped to 256-4096. |
 | `lowResTopBottomFaces` | `false` | Halves resolution on the up/down capture faces (except the one you're looking at) to save performance |
 | `antialiasSamples` | `4` | Supersample tap count in the reprojection pass: 1, 2, or 4. |
+
+> Note: \
+> **FOV mismatch:** Vanilla's slider sets a vertical FOV while the projection shader works in horizontal FOV, so the same number maps to a different angular extent depending on your aspect ratio and which projection stage you're in. \
+> **Performance:** Rendering a full surround view can take up to six world passes per frame instead of one (can decrease FPS) \
+> **Bugs:** Several rendering edge cases (billboard/particle handling, shader mod compatibility, untested corner geometry, etc.) haven't been verified in-game yet
 
 
 ## Attribution
