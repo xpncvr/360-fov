@@ -1,6 +1,6 @@
 package xpncvr.fov360.mixin;
 
-import com.mojang.blaze3d.buffers.GpuBufferSlice;
+import com.mojang.renderpearl.api.buffers.GpuBufferSlice;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.render.GuiRenderer;
 import org.spongepowered.asm.mixin.Mixin;
@@ -15,7 +15,7 @@ public abstract class GuiRendererMixin {
 		method = "draw",
 		at = @At(
 			value = "INVOKE",
-			target = "Lcom/mojang/blaze3d/systems/RenderSystem;setProjectionMatrix(Lcom/mojang/blaze3d/buffers/GpuBufferSlice;Lcom/mojang/blaze3d/ProjectionType;)V"),
+			target = "Lcom/mojang/blaze3d/systems/RenderSystem;setProjectionMatrix(Lcom/mojang/renderpearl/api/buffers/GpuBufferSlice;Lcom/mojang/blaze3d/ProjectionType;)V"),
 		index = 0)
 	private GpuBufferSlice panini$rightHalfProjection(GpuBufferSlice original) {
 		if (Fov360Renderer.splitGuiOnRight()) {
@@ -31,7 +31,7 @@ public abstract class GuiRendererMixin {
 		method = "enableScissor",
 		at = @At(
 			value = "INVOKE",
-			target = "Lcom/mojang/blaze3d/systems/RenderPass;enableScissor(IIII)V"),
+			target = "Lcom/mojang/renderpearl/api/commands/RenderPass;enableScissor(IIII)V"),
 		index = 0)
 	private int panini$scissorRightShift(int x) {
 		if (Fov360Renderer.splitGuiOnRight()) {

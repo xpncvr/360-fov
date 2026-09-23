@@ -22,14 +22,14 @@ public abstract class NameTagStorageMixin {
 		method = "submitNameTag",
 		at = @At(
 			value = "INVOKE",
-			target = "Lcom/mojang/blaze3d/vertex/PoseStack;mulPose(Lorg/joml/Quaternionfc;)V"))
+			target = "Lcom/mojang/blaze3d/vertex/PoseStack;rotate(Lorg/joml/Quaternionfc;)V"))
 	private void panini$labelTowardEye(PoseStack instance, Quaternionfc orientation, PoseStack poseStack, Vec3 nameTagAttachment) {
 		if (Fov360Renderer.capturing && nameTagAttachment != null) {
 			Matrix4f m = instance.last().pose();
 			Fov360Renderer.billboardRotation(panini$look, m.m30(), m.m31(), m.m32(), false);
-			instance.mulPose(panini$look);
+			instance.rotate(panini$look);
 		} else {
-			instance.mulPose(orientation);
+			instance.rotate(orientation);
 		}
 	}
 }

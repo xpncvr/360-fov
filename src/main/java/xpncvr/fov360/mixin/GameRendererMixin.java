@@ -1,10 +1,11 @@
 package xpncvr.fov360.mixin;
 
 import com.mojang.blaze3d.vertex.PoseStack;
-import net.minecraft.client.DeltaTracker;
+import com.mojang.renderpearl.api.textures.GpuTextureView;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.GameRenderer;
 import net.minecraft.client.renderer.state.level.CameraRenderState;
+import net.minecraft.client.renderer.state.level.PlayerRenderState;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
@@ -15,7 +16,7 @@ import xpncvr.fov360.Fov360Renderer;
 public abstract class GameRendererMixin {
 
 	@Inject(method = "renderLevel", at = @At("HEAD"), cancellable = true)
-	private void panini$driveLevel(DeltaTracker deltaTracker, CallbackInfo ci) {
+	private void panini$driveLevel(CallbackInfo ci) {
 		if (Fov360Renderer.capturing) {
 			return;
 		}
@@ -23,14 +24,14 @@ public abstract class GameRendererMixin {
 		if (!Fov360Renderer.willCapture(client)) {
 			return;
 		}
-		if (Fov360Renderer.INSTANCE.runFrame((GameRenderer) (Object) this, deltaTracker)) {
+		if (Fov360Renderer.INSTANCE.runFrame((GameRenderer) (Object) this, client.getDeltaTracker())) {
 			ci.cancel();
 		}
 	}
 
 	@Inject(method = "renderItemInHand", at = @At("HEAD"), cancellable = true)
-	private void panini$cancelHandDuringCapture(CameraRenderState cameraState, float deltaPartialTick,
-			org.joml.Matrix4fc modelViewMatrix, CallbackInfo ci) {
+	private void panini$cancelHandDuringCapture(CameraRenderState cameraState, PlayerRenderState playerState,
+			GpuTextureView depthTextureView, CallbackInfo ci) {
 		if (Fov360Renderer.capturing) {
 			ci.cancel();
 		}

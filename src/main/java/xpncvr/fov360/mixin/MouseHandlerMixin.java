@@ -16,7 +16,7 @@ public abstract class MouseHandlerMixin {
 
 	@Shadow private double xpos;
 
-	@Inject(method = "getScaledXPos", at = @At("HEAD"), cancellable = true)
+	@Inject(method = "getScaledXPos(Lcom/mojang/blaze3d/platform/Window;D)D", at = @At("HEAD"), cancellable = true)
 	private static void panini$scaleXHalf(Window window, double x, CallbackInfoReturnable<Double> cir) {
 		if (Fov360Renderer.splitGuiActive()) {
 			double originX = Fov360Renderer.splitGuiOnRight() ? window.getScreenWidth() / 2.0 : 0.0;
@@ -28,14 +28,14 @@ public abstract class MouseHandlerMixin {
 		method = "releaseMouse",
 		at = @At(
 			value = "INVOKE",
-			target = "Lcom/mojang/blaze3d/platform/InputConstants;grabOrReleaseMouse(Lcom/mojang/blaze3d/platform/Window;IDD)V"))
-	private void panini$centerCursorOnForwardHalf(Window window, int mode, double x, double y) {
+			target = "Lcom/mojang/blaze3d/platform/InputConstants;releaseMouse(Lcom/mojang/blaze3d/platform/Window;DD)V"))
+	private void panini$centerCursorOnForwardHalf(Window window, double x, double y) {
 		if (Fov360Renderer.splitGuiActive()) {
 			double forwardCenterX = window.getScreenWidth() * (Fov360Renderer.splitGuiOnRight() ? 0.75 : 0.25);
 			this.xpos = forwardCenterX;
-			InputConstants.grabOrReleaseMouse(window, mode, forwardCenterX, y);
+			InputConstants.releaseMouse(window, forwardCenterX, y);
 		} else {
-			InputConstants.grabOrReleaseMouse(window, mode, x, y);
+			InputConstants.releaseMouse(window, x, y);
 		}
 	}
 }

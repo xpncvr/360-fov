@@ -1,4 +1,5 @@
 #version 330
+#extension GL_ARB_separate_shader_objects : require
 
 #define M_PI 3.14159265
 
@@ -33,8 +34,8 @@ vec4 background() {
   return outlineMode ? vec4(0.0, 0.0, 0.0, 0.0) : vec4(0.0, 0.0, 0.0, 1.0);
 }
 
-in vec2 texCoord;
-out vec4 fragColor;
+layout(location = 0) in vec2 texCoord;
+layout(location = 0) out vec4 fragColor;
 
 vec3 latlon_to_ray(float lat, float lon) {
   return vec3(

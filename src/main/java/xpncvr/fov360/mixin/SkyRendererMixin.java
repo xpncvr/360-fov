@@ -18,16 +18,7 @@ public abstract class SkyRendererMixin {
 	private RenderTarget renderTarget;
 
 	@Redirect(
-		method = {
-			"renderSkyDisc",
-			"renderDarkDisc",
-			"renderSun",
-			"renderMoon",
-			"renderStars",
-			"renderSunriseAndSunset",
-			"renderEndSky",
-			"renderEndFlash"
-		},
+		method = "render",
 		at = @At(
 			value = "FIELD",
 			opcode = Opcodes.GETFIELD,
