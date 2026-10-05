@@ -52,6 +52,7 @@ public final class Fov360Renderer {
 	public static volatile RenderTarget currentTarget = null;
 	public static volatile boolean capturing = false;
 	public static volatile boolean captureOutlines = false;
+	public static volatile int captureFace = 0;
 	public static volatile float captureViewYaw = 0.0F;
 	public static volatile float captureFaceYaw = 0.0F;
 	public static volatile float captureFacePitch = 0.0F;
@@ -253,6 +254,7 @@ public final class Fov360Renderer {
 				if (!faceEnabled[k]) {
 					continue;
 				}
+				captureFace = k;
 				captureFaceYaw = faceYaw(viewYaw, k);
 				captureFacePitch = facePitch(k);
 				currentTarget = faces[k];

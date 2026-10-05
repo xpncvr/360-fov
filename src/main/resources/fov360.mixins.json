@@ -20,6 +20,7 @@
 		"MouseHandlerMixin",
 		"NameTagStorageMixin",
 		"OptionsMixin",
+		"PostPassMixin",
 		"ParticleAccessor",
 		"ScreenEffectRendererMixin",
 		"SingleQuadParticleMixin",
