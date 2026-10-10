@@ -33,6 +33,9 @@ public abstract class CameraMixin {
 	private float fov;
 
 	@Shadow
+	private boolean isPanoramicMode;
+
+	@Shadow
 	private float depthFar;
 
 	@Shadow
@@ -66,7 +69,7 @@ public abstract class CameraMixin {
 		this.setupPerspective(
 			Camera.PROJECTION_Z_NEAR,
 			this.depthFar,
-			Math.min(this.fov, 90.0F),
+			90.0F,
 			1.0F,
 			1.0F);
 	}
@@ -84,6 +87,17 @@ public abstract class CameraMixin {
 			Camera.PROJECTION_Z_NEAR,
 			this.depthFar,
 			RenderSystem.getDevice().getDeviceInfo().isZZeroToOne()));
+	}
+
+	@Inject(method = "calculateFov", at = @At("RETURN"), cancellable = true)
+	private void panini$matchRectilinearFov(float partialTicks, CallbackInfoReturnable<Float> cir) {
+		if (this.isPanoramicMode || Fov360Renderer.capturing) {
+			return;
+		}
+		float scale = Fov360Renderer.vanillaFovScale(Minecraft.getInstance());
+		if (scale != 1.0F) {
+			cir.setReturnValue(cir.getReturnValueF() * scale);
+		}
 	}
 
 	@Inject(method = "getFluidInCamera", at = @At("HEAD"), cancellable = true)

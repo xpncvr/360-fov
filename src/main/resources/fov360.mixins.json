@@ -17,15 +17,18 @@
 		"GuiRendererMixin",
 		"LevelExtractorMixin",
 		"LevelRendererAccessor",
+		"MinecraftMixin",
 		"MouseHandlerMixin",
 		"NameTagStorageMixin",
 		"OptionsMixin",
+		"OptionsScreenMixin",
 		"PostPassMixin",
 		"ParticleAccessor",
 		"ScreenEffectRendererMixin",
 		"SingleQuadParticleMixin",
 		"SkyRendererMixin",
 		"ThrownItemRendererMixin",
+		"VideoSettingsScreenMixin",
 		"WindowMixin"
 	],
 	"injectors": {

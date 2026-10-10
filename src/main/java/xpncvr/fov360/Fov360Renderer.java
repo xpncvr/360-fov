@@ -45,9 +45,11 @@ public final class Fov360Renderer {
 
 	private static final double DEG2RAD = Math.PI / 180.0;
 
-	private static final float CUBE_MIN_FOV = 90.0F;
-
 	private static final int MASK_GRID = 32;
+
+	private static final int MIN_SLIDER_FOV = 30;
+
+	private static final int MAX_SLIDER_FOV = 400;
 
 	public static volatile RenderTarget currentTarget = null;
 	public static volatile boolean capturing = false;
@@ -92,6 +94,9 @@ public final class Fov360Renderer {
 	private final Vector3f hybB = new Vector3f();
 
 	private float scaleStd, scalePan, scaleSte, scaleMer, scaleEqu, scaleFish;
+	private Fov360Projection blendFrom = Fov360Projection.RECTILINEAR;
+	private Fov360Projection blendTo = Fov360Projection.RECTILINEAR;
+	private float blendT = 0.0F;
 
 	private Fov360Renderer() {
 		for (int i = 0; i < 6; i++) {
@@ -107,6 +112,18 @@ public final class Fov360Renderer {
 		return config;
 	}
 
+	public static Fov360Config currentConfig() {
+		return INSTANCE.config();
+	}
+
+	public static float effectiveFov(Minecraft client) {
+		float rawFov = INSTANCE.fovx(client);
+		if (INSTANCE.config().splitScreen) {
+			return rawFov;
+		}
+		return INSTANCE.remapBoundaryFovx(rawFov, windowAspect(client));
+	}
+
 	public boolean shouldRun(Minecraft client) {
 		return client.level != null && client.player != null;
 	}
@@ -115,7 +132,48 @@ public final class Fov360Renderer {
 		if (client == null || client.player == null || !INSTANCE.shouldRun(client)) {
 			return false;
 		}
-		return INSTANCE.config().splitScreen || INSTANCE.fovx(client) >= CUBE_MIN_FOV;
+		return INSTANCE.needsCube(client);
+	}
+
+	private boolean needsCube(Minecraft client) {
+		if (config().splitScreen) {
+			return true;
+		}
+		Fov360Config.ProjectionBlend blend = Fov360Config.sample(config().projectionPoints, effectiveFov(client));
+		boolean rectilinear = blend.from() == Fov360Projection.RECTILINEAR
+			&& (blend.t() <= 0.0F || blend.to() == Fov360Projection.RECTILINEAR);
+		return !rectilinear;
+	}
+
+	public static float vanillaFovScale(Minecraft client) {
+		int rawFov = client.options.fov().get();
+		if (rawFov < 90 || INSTANCE.needsCube(client)) {
+			return 1.0F;
+		}
+		float fovx = Math.min(effectiveFov(client), Fov360Projection.RECTILINEAR.maxFov());
+		float vertical = (float) Math.toDegrees(2.0 * Math.atan(Math.tan(fovx * DEG2RAD / 2.0) / windowAspect(client)));
+		return vertical / rawFov;
+	}
+
+	public static int sliderFovFor(Minecraft client, float horizontalFov) {
+		float aspect = windowAspect(client);
+		boolean split = INSTANCE.config().splitScreen;
+		int best = MIN_SLIDER_FOV;
+		float bestDistance = Float.MAX_VALUE;
+		for (int raw = MIN_SLIDER_FOV; raw <= MAX_SLIDER_FOV; raw++) {
+			float fovx = split ? raw : INSTANCE.remapBoundaryFovx(raw, aspect);
+			float distance = Math.abs(fovx - horizontalFov);
+			if (distance < bestDistance) {
+				best = raw;
+				bestDistance = distance;
+			}
+		}
+		return best;
+	}
+
+	private static float windowAspect(Minecraft client) {
+		Window window = client.getWindow();
+		return window.getWidth() / (float) Math.max(1, window.getHeight());
 	}
 
 	public static boolean splitGuiActive() {
@@ -196,7 +254,7 @@ public final class Fov360Renderer {
 			boolean split = config().splitScreen;
 			boolean invert = config().invertSplitScreen;
 
-			if (!split && rawFov < CUBE_MIN_FOV) {
+			if (!needsCube(client)) {
 				return false;
 			}
 
@@ -208,6 +266,7 @@ public final class Fov360Renderer {
 			float fovx = split ? rawFov : remapBoundaryFovx(rawFov, aspect);
 
 			computeScales(fovx);
+			selectProjections(fovx);
 
 			Camera realCamera = gameRenderer.mainCamera();
 			float worldPartialTicks = deltaTracker.getGameTimeDeltaPartialTick(false);
@@ -241,7 +300,7 @@ public final class Fov360Renderer {
 			screenToRay(0.0F, 0.0F, fovx, viewPitch, false);
 			int centerFace = faceIndexOf(rayOut);
 
-			int fullSize = requiredFaceSize(projW, fovx);
+			int fullSize = requiredFaceSize(projW);
 			int lowSize = config().lowResTopBottomFaces ? halvedSize(fullSize) : fullSize;
 			ensureResources(fullSize, lowSize, centerFace);
 
@@ -311,9 +370,12 @@ public final class Fov360Renderer {
 
 	private void computeScales(float fovx) {
 		double rHalf = fovx * DEG2RAD / 2.0;
-		scaleStd = (float) Math.tan(rHalf);
-		scalePan = (float) ((2.0 / (1.0 + Math.cos(rHalf))) * Math.sin(rHalf));
-		scaleSte = (float) Math.tan(rHalf / 2.0);
+		double stdHalf = Math.min(fovx, Fov360Projection.RECTILINEAR.maxFov()) * DEG2RAD / 2.0;
+		double panHalf = Math.min(fovx, Fov360Projection.PANINI.maxFov()) * DEG2RAD / 2.0;
+		double steHalf = Math.min(fovx, Fov360Projection.STEREOGRAPHIC.maxFov()) * DEG2RAD / 2.0;
+		scaleStd = (float) Math.tan(stdHalf);
+		scalePan = (float) ((2.0 / (1.0 + Math.cos(panHalf))) * Math.sin(panHalf));
+		scaleSte = (float) Math.tan(steHalf / 2.0);
 		scaleMer = (float) rHalf;
 		scaleEqu = (float) rHalf;
 		scaleFish = (float) rHalf;
@@ -428,37 +490,34 @@ public final class Fov360Renderer {
 		d.set(hybA).lerp(hybB, Math.abs(pitchDeg) / 90.0F);
 	}
 
+	private void selectProjections(float fovx) {
+		Fov360Config.ProjectionBlend blend = Fov360Config.sample(config().projectionPoints, fovx);
+		blendFrom = blend.from();
+		blendTo = blend.to();
+		blendT = blend.t();
+	}
+
+	private boolean blendsTo() {
+		return blendT > 0.0F && blendTo != blendFrom;
+	}
+
+	private void projectionRay(Fov360Projection projection, Vector3f d, float cx, float cy, float pitchDeg) {
+		switch (projection) {
+			case RECTILINEAR -> standardRay(d, cx, cy);
+			case PANINI_STEREOGRAPHIC -> hybridRay(d, cx, cy, pitchDeg);
+			case PANINI -> paniniRay(d, cx, cy);
+			case STEREOGRAPHIC -> stereoRay(d, cx, cy);
+			case FISHEYE -> fisheyeRay(d, cx, cy);
+			case MERCATOR -> mercatorRay(d, cx, cy);
+			case EQUIRECTANGULAR -> equirectRay(d, cx, cy);
+		}
+	}
+
 	private boolean screenToRay(float cx, float cy, float fovx, float pitchDeg, boolean rear) {
-		if (fovx < 90.0F) {
-			standardRay(rayOut, cx, cy);
-		} else if (fovx < 160.0F) {
-			double lin = (fovx - 90.0) / 70.0;
-			float p = (float) (1.0 - (lin - 1.0) * (lin - 1.0));
-			standardRay(rayA, cx, cy);
-			hybridRay(rayB, cx, cy, pitchDeg);
-			rayOut.set(rayA).lerp(rayB, p);
-		} else if (fovx < 220.0F) {
-			double lin = (fovx - 160.0) / 60.0;
-			float p = (float) (1.0 - (lin - 1.0) * (lin - 1.0));
-			hybridRay(rayA, cx, cy, pitchDeg);
-			fisheyeRay(rayB, cx, cy);
-			rayOut.set(rayA).lerp(rayB, p);
-		} else if (fovx < 300.0F) {
-			double lin = (fovx - 220.0) / 80.0;
-			float p = (float) (1.0 - (lin - 1.0) * (lin - 1.0));
-			fisheyeRay(rayA, cx, cy);
-			mercatorRay(rayB, cx, cy);
-			rayOut.set(rayA).lerp(rayB, p);
-		} else if (fovx < 340.0F) {
-			mercatorRay(rayOut, cx, cy);
-		} else if (fovx < 360.0F) {
-			mercatorRay(rayA, cx, cy);
-			if (!equirectRay(rayB, cx, cy)) {
-				rayB.set(0.0F, 0.0F, 0.0F);
-			}
-			rayOut.set(rayA).lerp(rayB, (fovx - 340.0F) / 20.0F);
-		} else if (!equirectRay(rayOut, cx, cy)) {
-			return false;
+		projectionRay(blendFrom, rayOut, cx, cy, pitchDeg);
+		if (blendsTo()) {
+			projectionRay(blendTo, rayB, cx, cy, pitchDeg);
+			rayOut.lerp(rayB, blendT);
 		}
 		rayOut.z = -rayOut.z;
 		if (rear) {
@@ -468,13 +527,21 @@ public final class Fov360Renderer {
 		return rayOut.lengthSquared() > 1.0e-12F;
 	}
 
-	private int requiredFaceSize(float projW, float fovx) {
-		double rad = fovx * DEG2RAD;
-		double panini = projW / (4.0 * Math.tan(Math.min(fovx, 290.0) * DEG2RAD / 4.0));
-		double mercator = projW / rad;
-		double density = Math.max(panini, mercator);
-		if (fovx < 160.0) {
-			density = Math.max(density, projW / (2.0 * Math.tan(rad / 2.0)));
+	private float centerScale(Fov360Projection projection) {
+		return switch (projection) {
+			case RECTILINEAR -> scaleStd;
+			case PANINI_STEREOGRAPHIC, PANINI -> scalePan;
+			case STEREOGRAPHIC -> 2.0F * scaleSte;
+			case FISHEYE -> scaleFish;
+			case MERCATOR -> scaleMer;
+			case EQUIRECTANGULAR -> scaleEqu;
+		};
+	}
+
+	private int requiredFaceSize(float projW) {
+		double density = projW / (2.0 * centerScale(blendFrom));
+		if (blendsTo()) {
+			density = Math.max(density, projW / (2.0 * centerScale(blendTo)));
 		}
 		int rounded = (int) (Math.ceil(2.0 * density / 128.0) * 128);
 		int cap = Mth.clamp(config().faceSizeCap, 256, 4096);
@@ -545,7 +612,7 @@ public final class Fov360Renderer {
 			for (int i = 0; i < 6; i++) {
 				calc.putMat4f();
 			}
-			for (int i = 0; i < 6; i++) {
+			for (int i = 0; i < 7; i++) {
 				calc.putVec4();
 			}
 			uboSize = calc.get();
@@ -596,6 +663,7 @@ public final class Fov360Renderer {
 			b.putVec4(scaleEqu, outline ? 1.0F : 0.0F, scaleFish, 0.0F);
 			b.putVec4(en(0), en(1), en(2), en(3));
 			b.putVec4(en(4), en(5), 0.0F, 0.0F);
+			b.putVec4(blendFrom.ordinal(), blendTo.ordinal(), blendsTo() ? blendT : 0.0F, 0.0F);
 		}
 	}
 
@@ -654,12 +722,15 @@ public final class Fov360Renderer {
 
 	private float fovx(Minecraft client) {
 		int fovOption = client.options.fov().get();
-		return Mth.clamp(fovOption, 30.0F, 400.0F);
+		return Mth.clamp(fovOption, MIN_SLIDER_FOV, MAX_SLIDER_FOV);
 	}
 
 	private float remapBoundaryFovx(float rawFov, float aspect) {
 		if (rawFov >= 180.0F) {
 			return rawFov;
+		}
+		if (rawFov < 90.0F) {
+			return (float) Math.toDegrees(2.0 * Math.atan(aspect * Math.tan(rawFov * DEG2RAD / 2.0)));
 		}
 		float boundaryHorizontal = (float) Math.toDegrees(2.0 * Math.atan(aspect));
 		float offset = boundaryHorizontal - 90.0F;

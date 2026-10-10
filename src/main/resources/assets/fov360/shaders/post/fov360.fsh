@@ -17,6 +17,7 @@ layout(std140) uniform PaniniConfig {
     vec4 Scales;
     vec4 Scales2;
     vec4 FaceEnabled[2];
+    vec4 Blend;
 };
 
 #define fovx (Params.x)
@@ -216,28 +217,22 @@ vec2 tex_to_screen(vec2 tex) {
   return (tex - vec2(0.5, 0.5)) * vec2(2.0, 2.0/aspect);
 }
 
+vec3 projection_ray(int projection, vec2 c) {
+  switch (projection) {
+    case 0: return standard_ray(c);
+    case 1: return hybrid_stereo_ray(c);
+    case 2: return panini_ray(c);
+    case 3: return stereographic_ray(c);
+    case 4: return fisheye_ray(c);
+    case 5: return mercator_ray(c);
+  }
+  return equirect_ray(c);
+}
+
 vec3 screen_to_ray(vec2 c) {
-  vec3 ray;
-  if (fovx < 90.0) {
-    ray = standard_ray(c);
-  } else if (fovx < 160.0) {
-    float linear = (fovx - 90.0)/ 70.0;
-    float parabola = 1.0-(linear-1.0)*(linear-1.0);
-    ray = mix(standard_ray(c), hybrid_stereo_ray(c), parabola);
-  } else if (fovx < 220.0) {
-    float linear = (fovx - 160.0)/ 60.0;
-    float parabola = 1.0-(linear-1.0)*(linear-1.0);
-    ray = mix(hybrid_stereo_ray(c), fisheye_ray(c), parabola);
-  } else if (fovx < 300.0) {
-    float linear = (fovx - 220.0)/ 80.0;
-    float parabola = 1.0-(linear-1.0)*(linear-1.0);
-    ray = mix(fisheye_ray(c), mercator_ray(c), parabola);
-  } else if (fovx < 340.0) {
-    ray = mercator_ray(c);
-  } else if (fovx < 360.0) {
-    ray = mix(mercator_ray(c), equirect_ray(c), (fovx - 340.0)/20.0);
-  } else {
-    ray = equirect_ray(c);
+  vec3 ray = projection_ray(int(Blend.x + 0.5), c);
+  if (Blend.z > 0.0) {
+    ray = mix(ray, projection_ray(int(Blend.y + 0.5), c), Blend.z);
   }
   ray.z *= -1.0;
   if (splitRear) {
