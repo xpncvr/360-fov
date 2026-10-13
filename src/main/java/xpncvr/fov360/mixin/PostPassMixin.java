@@ -25,7 +25,7 @@ public abstract class PostPassMixin {
 	private MappableRingBuffer infoUbo;
 
 	@Unique
-	private final MappableRingBuffer[] panini$faceInfoUbos = new MappableRingBuffer[6];
+	private final MappableRingBuffer[] panini$faceInfoUbos = new MappableRingBuffer[Fov360Renderer.REAR_FACE + 1];
 
 	@Redirect(
 		method = "lambda$addToFrame$1",

@@ -270,6 +270,8 @@ void main(void) {
   if (OutSize.z > 0.5) {
     splitRear = (tex.x >= 0.5) != (OutSize.w > 0.5);
     tex = vec2(fract(tex.x * 2.0), tex.y);
+  } else {
+    splitRear = Scales2.w > 0.5;
   }
   vec2 screen = tex_to_screen(tex);
 

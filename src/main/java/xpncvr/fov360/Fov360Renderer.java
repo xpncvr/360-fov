@@ -37,6 +37,7 @@ import org.joml.Vector3f;
 import xpncvr.fov360.mixin.GameRendererInvoker;
 import xpncvr.fov360.mixin.LevelRendererAccessor;
 
+import java.util.Arrays;
 import java.util.Optional;
 import java.util.OptionalDouble;
 
@@ -51,6 +52,26 @@ public final class Fov360Renderer {
 
 	private static final int MAX_SLIDER_FOV = 400;
 
+	public static final int REAR_FACE = 6;
+
+	private static final float CUBE_FACE_FOV = 90.0F;
+
+	private static final float CUBE_CULL_FOV = 110.0F;
+
+	private static final float REAR_CULL_MARGIN = 20.0F;
+
+	private static final float MAX_CULL_FOV = 170.0F;
+
+	private static final int MIN_REAR_SIZE = 16;
+
+	private static final int REAR_MASK_GRID = 16;
+
+	private static final int OVERLAY_UBO_FLOATS = 12;
+
+	private static final int OVERLAY_VERTICES = 6;
+
+	private static final float REAR_BORDER_GRAY = 0.08F;
+
 	public static volatile RenderTarget currentTarget = null;
 	public static volatile boolean capturing = false;
 	public static volatile boolean captureOutlines = false;
@@ -60,6 +81,10 @@ public final class Fov360Renderer {
 	public static volatile float captureFacePitch = 0.0F;
 	public static final Vector3f captureViewForward = new Vector3f(0.0F, 0.0F, -1.0F);
 	public static volatile FogType capturedFogType = FogType.NONE;
+	public static volatile float captureFov = CUBE_FACE_FOV;
+	public static volatile float captureAspect = 1.0F;
+	public static volatile float captureCullFov = CUBE_CULL_FOV;
+	public static volatile boolean rearOverlayPreview = false;
 
 
 	private Fov360Config config = null;
@@ -94,6 +119,25 @@ public final class Fov360Renderer {
 	private final Vector3f hybB = new Vector3f();
 
 	private float scaleStd, scalePan, scaleSte, scaleMer, scaleEqu, scaleFish;
+	private RenderTarget rearTarget = null;
+	private RenderTarget rearOutlineTarget = null;
+	private int rearWidth = 0;
+	private int rearHeight = 0;
+	private RenderPipeline overlayPipeline = null;
+	private GpuBuffer uboBufferRear = null;
+	private GpuBuffer overlayUbo = null;
+	private boolean rearValid = false;
+	private float rearCapturedFov = 0.0F;
+	private final float[] overlayUboValues = new float[OVERLAY_UBO_FLOATS];
+	private final float[] overlayUboWritten = new float[OVERLAY_UBO_FLOATS];
+	private boolean overlayUboFresh = false;
+	private long lastRearNanos = 0L;
+	private Object rearLevel = null;
+	private float lastViewPitch = 0.0F;
+	private final Quaternionf qRear = new Quaternionf();
+
+	private float frameViewYaw, frameViewPitch;
+
 	private Fov360Projection blendFrom = Fov360Projection.RECTILINEAR;
 	private Fov360Projection blendTo = Fov360Projection.RECTILINEAR;
 	private float blendT = 0.0F;
@@ -258,6 +302,11 @@ public final class Fov360Renderer {
 				return false;
 			}
 
+			float dynamicFov = gameRenderer.mainCamera().getFov();
+			if (dynamicFov > 0.0F) {
+				rawFov = Mth.clamp(rawFov * dynamicFov / client.options.fov().get(), MIN_SLIDER_FOV, MAX_SLIDER_FOV);
+			}
+
 			RenderTarget main = gameRenderer.mainRenderTarget();
 			int outH = main.height;
 			float projW = main.width / (split ? 2.0F : 1.0F);
@@ -265,21 +314,18 @@ public final class Fov360Renderer {
 
 			float fovx = split ? rawFov : remapBoundaryFovx(rawFov, aspect);
 
+			float baseFov = fovx(client);
 			computeScales(fovx);
-			selectProjections(fovx);
+			selectProjections(split ? baseFov : remapBoundaryFovx(baseFov, aspect));
 
 			Camera realCamera = gameRenderer.mainCamera();
 			float worldPartialTicks = deltaTracker.getGameTimeDeltaPartialTick(false);
 			float cameraPartialTicks = realCamera.getCameraEntityPartialTicks(deltaTracker);
 
-			Entity cameraEntity = client.getCameraEntity() == null ? player : client.getCameraEntity();
-			float viewYaw = cameraEntity.getViewYRot(cameraPartialTicks);
-			float viewPitch = cameraEntity.getViewXRot(cameraPartialTicks);
-
-			if (client.options.getCameraType().isMirrored()) {
-				viewYaw += 180.0F;
-				viewPitch = -viewPitch;
-			}
+			updateViewAngles(client, player, cameraPartialTicks);
+			float viewYaw = frameViewYaw;
+			float viewPitch = frameViewPitch;
+			lastViewPitch = viewPitch;
 
 			q(qPlayer, viewYaw, viewPitch);
 			captureViewYaw = viewYaw;
@@ -339,6 +385,7 @@ public final class Fov360Renderer {
 			if (!split) {
 				renderHand(gameRenderer);
 			}
+			renderRearOverlay(gameRenderer, deltaTracker, true);
 			return true;
 		} catch (Throwable t) {
 			fail(t);
@@ -348,6 +395,246 @@ public final class Fov360Renderer {
 			capturing = false;
 			endOutlineCapture();
 			outlineRedirect = null;
+		}
+	}
+
+	private void updateViewAngles(Minecraft client, Player player, float cameraPartialTicks) {
+		Entity cameraEntity = client.getCameraEntity() == null ? player : client.getCameraEntity();
+		frameViewYaw = cameraEntity.getViewYRot(cameraPartialTicks);
+		frameViewPitch = cameraEntity.getViewXRot(cameraPartialTicks);
+		if (client.options.getCameraType().isMirrored()) {
+			frameViewYaw += 180.0F;
+			frameViewPitch = -frameViewPitch;
+		}
+	}
+
+	private boolean rearOverlayActive(Minecraft client) {
+		Fov360Config c = config();
+		return shouldRun(client)
+			&& !c.splitScreen
+			&& (rearOverlayPreview || (c.rearOverlay && !client.gui.hud.isHidden()));
+	}
+
+	public void renderRearOverlay(GameRenderer gameRenderer, DeltaTracker deltaTracker, boolean cubeFresh) {
+		Minecraft client = Minecraft.getInstance();
+		if (capturing || client.player == null || !rearOverlayActive(client)) {
+			return;
+		}
+		try {
+			Fov360Config c = config();
+			RenderTarget main = gameRenderer.mainRenderTarget();
+			int x0 = Math.round(c.rearOverlayX * main.width);
+			int y0 = Math.round(c.rearOverlayY * main.height);
+			int x1 = Math.round((c.rearOverlayX + c.rearOverlayWidth) * main.width);
+			int y1 = Math.round((c.rearOverlayY + c.rearOverlayHeight) * main.height);
+			if (x1 - x0 < 2 || y1 - y0 < 2) {
+				return;
+			}
+			float aspect = (x1 - x0) / (float) (y1 - y0);
+			float scale = Mth.clamp(c.rearOverlayRenderScale, Fov360Config.MIN_REAR_OVERLAY_SCALE, Fov360Config.MAX_REAR_OVERLAY_SCALE) / 100.0F;
+			int w = Math.max(MIN_REAR_SIZE, Math.round((x1 - x0) * scale));
+			int h = Math.max(MIN_REAR_SIZE, Math.round((y1 - y0) * scale));
+			ensureRearResources(w, h);
+
+			if (rearCaptureDue(client)) {
+				if (!(cubeFresh && reprojectRearFromCube(aspect))) {
+					captureRear(client, gameRenderer, deltaTracker, aspect);
+				}
+				lastRearNanos = System.nanoTime();
+				rearValid = true;
+				rearLevel = client.level;
+				rearCapturedFov = rearFovx();
+			}
+			compositeRear(client, main, x0, main.height - y1, x1, main.height - y0);
+		} catch (Throwable t) {
+			fail(t);
+		}
+	}
+
+	private float rearFovx() {
+		return Mth.clamp(config().rearOverlayFov, Fov360Config.MIN_REAR_OVERLAY_FOV, Fov360Config.MAX_REAR_OVERLAY_FOV);
+	}
+
+	private boolean rearCaptureDue(Minecraft client) {
+		if (!rearValid || rearLevel != client.level || rearCapturedFov != rearFovx()) {
+			return true;
+		}
+		if (client.isPaused()) {
+			return false;
+		}
+		int fps = config().rearOverlayFps;
+		return fps <= 0 || System.nanoTime() - lastRearNanos >= 1_000_000_000L / fps;
+	}
+
+	private boolean reprojectRearFromCube(float aspect) {
+		if (pipeline == null || uboSize <= 0) {
+			return false;
+		}
+		float scale = (float) Math.tan(rearFovx() * DEG2RAD / 2.0);
+		for (int iy = 0; iy <= REAR_MASK_GRID; iy++) {
+			float sy = (iy / (float) REAR_MASK_GRID - 0.5F) * (2.0F / aspect);
+			for (int ix = 0; ix <= REAR_MASK_GRID; ix++) {
+				float sx = (ix / (float) REAR_MASK_GRID - 0.5F) * 2.0F;
+				rayOut.set(-sx * scale, sy * scale, 1.0F);
+				int face = faceIndexOf(rayOut);
+				if (!faceEnabled[face] || faces[face] == null) {
+					return false;
+				}
+			}
+		}
+		if (uboBufferRear == null) {
+			uboBufferRear = RenderSystem.getDevice().createBuffer(
+				() -> "PaniniConfigRear",
+				GpuBuffer.USAGE_UNIFORM | GpuBuffer.USAGE_MAP_WRITE,
+				uboSize);
+		}
+		float aa = Mth.clamp(config().antialiasSamples, 1, 4);
+		try (GpuBufferSlice.MappedView view = uboBufferRear.map(false, true)) {
+			Std140Builder b = Std140Builder.intoBuffer(view.data());
+			for (int i = 0; i < 6; i++) {
+				b.putMat4f(coordFrames[i]);
+			}
+			b.putVec4(rearFovx(), aspect, lastViewPitch, aa);
+			b.putVec4((float) rearWidth, (float) rearHeight, 0.0F, 0.0F);
+			b.putVec4(scale, 0.0F, 0.0F, 0.0F);
+			b.putVec4(0.0F, 0.0F, 0.0F, 1.0F);
+			b.putVec4(en(0), en(1), en(2), en(3));
+			b.putVec4(en(4), en(5), 0.0F, 0.0F);
+			b.putVec4(Fov360Projection.RECTILINEAR.ordinal(), Fov360Projection.RECTILINEAR.ordinal(), 0.0F, 0.0F);
+		}
+		CommandEncoder encoder = RenderSystem.getDevice().createCommandEncoder();
+		runReprojectPass(encoder, "fov360 rear reproject", uboBufferRear, faces, rearTarget);
+		return true;
+	}
+
+	private void captureRear(Minecraft client, GameRenderer gameRenderer, DeltaTracker deltaTracker, float aspect) {
+		Camera realCamera = gameRenderer.mainCamera();
+		float worldPartialTicks = deltaTracker.getGameTimeDeltaPartialTick(false);
+		updateViewAngles(client, client.player, realCamera.getCameraEntityPartialTicks(deltaTracker));
+		float rearYaw = frameViewYaw + 180.0F;
+		float rearPitch = -frameViewPitch;
+		float vertical = (float) Math.toDegrees(2.0 * Math.atan(Math.tan(rearFovx() * DEG2RAD / 2.0) / aspect));
+
+		q(qRear, rearYaw, rearPitch);
+		captureViewYaw = rearYaw;
+		captureViewForward.set(0.0F, 0.0F, -1.0F).rotate(qRear);
+		capturedFogType = realCamera.getFluidInCamera();
+
+		GameRendererInvoker inv = (GameRendererInvoker) gameRenderer;
+		LevelRendererAccessor lr = (LevelRendererAccessor) client.levelRenderer;
+		RenderTarget realOutline = lr.panini$getEntityOutlineTarget();
+		if (realOutline != null && rearOutlineTarget == null) {
+			rearOutlineTarget = new TextureTarget("fov360_rear_outline", rearWidth, rearHeight, GpuFormat.RGBA8_UNORM, GpuFormat.D32_FLOAT);
+		}
+
+		capturing = true;
+		captureOutlines = false;
+		captureFace = REAR_FACE;
+		captureFaceYaw = rearYaw;
+		captureFacePitch = rearPitch;
+		captureFov = vertical;
+		captureAspect = aspect;
+		captureCullFov = Math.min(vertical + REAR_CULL_MARGIN, MAX_CULL_FOV);
+		currentTarget = rearTarget;
+		if (realOutline != null) {
+			lr.panini$setEntityOutlineTarget(rearOutlineTarget);
+		}
+		try {
+			realCamera.update(deltaTracker);
+			inv.panini$extractCamera(deltaTracker, worldPartialTicks);
+			client.levelExtractor.extract(deltaTracker, realCamera, worldPartialTicks);
+			gameRenderer.renderLevel();
+		} finally {
+			currentTarget = null;
+			capturing = false;
+			captureFov = CUBE_FACE_FOV;
+			captureAspect = 1.0F;
+			captureCullFov = CUBE_CULL_FOV;
+			if (realOutline != null) {
+				lr.panini$setEntityOutlineTarget(realOutline);
+			}
+			realCamera.update(deltaTracker);
+			inv.panini$extractCamera(deltaTracker, worldPartialTicks);
+		}
+	}
+
+	private void compositeRear(Minecraft client, RenderTarget out, int x0, int y0, int x1, int y1) {
+		Fov360Config c = config();
+		float border = c.rearOverlayBorder ? Math.max(1, (int) client.getWindow().getGuiScale()) : 0.0F;
+		float[] v = overlayUboValues;
+		v[0] = x0;
+		v[1] = y0;
+		v[2] = x1;
+		v[3] = y1;
+		v[4] = c.rearOverlayMirror ? 1.0F : 0.0F;
+		v[5] = border;
+		v[6] = out.width;
+		v[7] = out.height;
+		v[8] = REAR_BORDER_GRAY;
+		v[9] = REAR_BORDER_GRAY;
+		v[10] = REAR_BORDER_GRAY;
+		v[11] = 1.0F;
+		if (!overlayUboFresh || !Arrays.equals(v, overlayUboWritten)) {
+			try (GpuBufferSlice.MappedView view = overlayUbo.map(false, true)) {
+				Std140Builder b = Std140Builder.intoBuffer(view.data());
+				for (int i = 0; i < OVERLAY_UBO_FLOATS; i += 4) {
+					b.putVec4(v[i], v[i + 1], v[i + 2], v[i + 3]);
+				}
+			}
+			System.arraycopy(v, 0, overlayUboWritten, 0, OVERLAY_UBO_FLOATS);
+			overlayUboFresh = true;
+		}
+		CommandEncoder encoder = RenderSystem.getDevice().createCommandEncoder();
+		try (RenderPass pass = encoder.createRenderPass(
+				() -> "fov360 rear overlay",
+				out.getColorTextureView(), Optional.empty(),
+				null, OptionalDouble.empty())) {
+			pass.setPipeline(RenderSystem.getCompiledPipeline(overlayPipeline));
+			RenderSystem.bindDefaultUniforms(pass);
+			pass.setUniform("RearOverlayConfig", overlayUbo);
+			pass.setUniform("RearSampler", rearTarget.getColorTextureView(), RenderSystem.getSamplerCache().getClampToEdge(FilterMode.LINEAR));
+			pass.draw(OVERLAY_VERTICES, 1, 0, 0);
+		}
+	}
+
+	private void ensureRearResources(int w, int h) {
+		ensureDevice();
+		if (rearTarget == null) {
+			rearTarget = new TextureTarget("fov360_rear", w, h, GpuFormat.RGBA8_UNORM, GpuFormat.D32_FLOAT);
+			rearValid = false;
+		} else if (rearWidth != w || rearHeight != h) {
+			rearTarget.resize(w, h);
+			if (rearOutlineTarget != null) {
+				rearOutlineTarget.resize(w, h);
+			}
+			rearValid = false;
+		}
+		rearWidth = w;
+		rearHeight = h;
+
+		if (overlayPipeline == null) {
+			RenderPipeline.Builder builder = RenderPipeline.builder(RenderPipelines.POST_PROCESSING_SNIPPET)
+				.withLocation(Identifier.fromNamespaceAndPath("fov360", "pipeline/rear_overlay"))
+				.withVertexShader(Identifier.fromNamespaceAndPath("fov360", "post/rear_overlay"))
+				.withFragmentShader(Identifier.fromNamespaceAndPath("fov360", "post/rear_overlay"));
+			builder.withBindGroupLayout(BindGroupLayout.builder()
+				.withUniform("RearSampler", UniformType.COMBINED_IMAGE_SAMPLER)
+				.withUniform("RearOverlayConfig", UniformType.UNIFORM_BUFFER)
+				.build());
+			builder.withColorTargetState(ColorTargetState.DEFAULT);
+			overlayPipeline = builder.build();
+		}
+
+		if (overlayUbo == null) {
+			Std140SizeCalculator calc = new Std140SizeCalculator();
+			for (int i = 0; i < 3; i++) {
+				calc.putVec4();
+			}
+			overlayUbo = RenderSystem.getDevice().createBuffer(
+				() -> "RearOverlayConfig",
+				GpuBuffer.USAGE_UNIFORM | GpuBuffer.USAGE_MAP_WRITE,
+				calc.get());
+			overlayUboFresh = false;
 		}
 	}
 
@@ -553,21 +840,35 @@ public final class Fov360Renderer {
 		return Math.max(256, rounded);
 	}
 
-	private void ensureResources(int fullSize, int lowSize, int centerFace) {
+	private void ensureDevice() {
 		GpuDevice device = RenderSystem.getDevice();
-		if (resourceDevice != device) {
-			for (int i = 0; i < 6; i++) {
-				faces[i] = null;
-				faceSizes[i] = 0;
-				outlineFaces[i] = null;
-				outlineFaceSizes[i] = 0;
-			}
-			pipeline = null;
-			uboBuffer = null;
-			uboBufferOutline = null;
-			uboSize = -1;
-			resourceDevice = device;
+		if (resourceDevice == device) {
+			return;
 		}
+		for (int i = 0; i < 6; i++) {
+			faces[i] = null;
+			faceSizes[i] = 0;
+			outlineFaces[i] = null;
+			outlineFaceSizes[i] = 0;
+		}
+		pipeline = null;
+		uboBuffer = null;
+		uboBufferOutline = null;
+		uboSize = -1;
+		rearTarget = null;
+		rearOutlineTarget = null;
+		rearWidth = 0;
+		rearHeight = 0;
+		overlayPipeline = null;
+		uboBufferRear = null;
+		overlayUbo = null;
+		rearValid = false;
+		resourceDevice = device;
+	}
+
+	private void ensureResources(int fullSize, int lowSize, int centerFace) {
+		ensureDevice();
+		GpuDevice device = RenderSystem.getDevice();
 
 		for (int k = 0; k < 6; k++) {
 			if (!faceEnabled[k]) {

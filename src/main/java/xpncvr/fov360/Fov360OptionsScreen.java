@@ -49,11 +49,22 @@ public final class Fov360OptionsScreen extends OptionsSubScreen {
 				value -> config.lowResTopBottomFaces = value),
 			new OptionInstance<>("fov360.options.antialiasSamples",
 				tooltip("fov360.options.antialiasSamples.tooltip", Component.literal(String.valueOf(DEFAULTS.antialiasSamples))),
-				Options::genericValueLabel,
+				(caption, value) -> Component.literal(String.valueOf(value)),
 				new OptionInstance.Enum<>(List.of(1, 2, 4), Codec.INT),
 				config.antialiasSamples >= 4 ? 4 : config.antialiasSamples >= 2 ? 2 : 1,
 				value -> config.antialiasSamples = value)
 		);
+
+		list.addHeader(Component.translatable("fov360.options.rearView"));
+		list.addSmall(
+			OptionInstance.createBoolean("fov360.options.rearOverlay",
+				tooltip("fov360.options.rearOverlay.tooltip", onOff(DEFAULTS.rearOverlay)),
+				config.rearOverlay,
+				value -> config.rearOverlay = value).createButton(options),
+			Button.builder(Component.translatable("fov360.options.editRearView"),
+				button -> minecraft.gui.setScreen(new Fov360RearViewScreen(this)))
+			.tooltip(Tooltip.create(Component.translatable("fov360.options.editRearView.tooltip")))
+			.build());
 
 		list.addHeader(Component.translatable("fov360.options.projections"));
 		list.addBig(Button.builder(Component.translatable("fov360.options.editThresholds"),
@@ -83,6 +94,10 @@ public final class Fov360OptionsScreen extends OptionsSubScreen {
 		}, Component.translatable("fov360.options.reset.confirm"), Component.translatable("fov360.reset.warning")));
 	}
 
+	void refresh() {
+		rebuildWidgets();
+	}
+
 	@Override
 	public void removed() {
 		super.removed();
@@ -93,11 +108,11 @@ public final class Fov360OptionsScreen extends OptionsSubScreen {
 		return Component.translatable("fov360.options.default", value).withStyle(ChatFormatting.GRAY);
 	}
 
-	private static Component onOff(boolean value) {
+	static Component onOff(boolean value) {
 		return value ? CommonComponents.OPTION_ON : CommonComponents.OPTION_OFF;
 	}
 
-	private static <T> OptionInstance.TooltipSupplier<T> tooltip(String key, Component defaultValue) {
+	static <T> OptionInstance.TooltipSupplier<T> tooltip(String key, Component defaultValue) {
 		return OptionInstance.cachedConstantTooltip(Component.translatable(key)
 			.append(CommonComponents.NEW_LINE)
 			.append(defaultLine(defaultValue)));

@@ -29,6 +29,13 @@ public abstract class GameRendererMixin {
 		}
 	}
 
+	@Inject(method = "renderLevel", at = @At("TAIL"))
+	private void panini$rearOverlay(CallbackInfo ci) {
+		if (!Fov360Renderer.capturing) {
+			Fov360Renderer.INSTANCE.renderRearOverlay((GameRenderer) (Object) this, Minecraft.getInstance().getDeltaTracker(), false);
+		}
+	}
+
 	@Inject(method = "renderItemInHand", at = @At("HEAD"), cancellable = true)
 	private void panini$cancelHandDuringCapture(CameraRenderState cameraState, PlayerRenderState playerState,
 			GpuTextureView depthTextureView, CallbackInfo ci) {

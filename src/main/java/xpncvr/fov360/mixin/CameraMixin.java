@@ -21,9 +21,6 @@ import xpncvr.fov360.Fov360Renderer;
 public abstract class CameraMixin {
 
 	@Unique
-	private static final float PANINI_CAPTURE_CULL_FOV = 110.0F;
-
-	@Unique
 	private static final float PANINI_MAX_VANILLA_FOV = 150.0F;
 
 	@Shadow
@@ -56,8 +53,8 @@ public abstract class CameraMixin {
 
 		Matrix4f viewRotation = self.getViewRotationMatrix(new Matrix4f());
 		Matrix4f cullProjection = new Matrix4f().perspective(
-			PANINI_CAPTURE_CULL_FOV * (float) (Math.PI / 180.0),
-			1.0F,
+			Fov360Renderer.captureCullFov * (float) (Math.PI / 180.0),
+			Fov360Renderer.captureAspect,
 			Camera.PROJECTION_Z_NEAR,
 			this.depthFar,
 			RenderSystem.getDevice().getDeviceInfo().isZZeroToOne());
@@ -69,8 +66,8 @@ public abstract class CameraMixin {
 		this.setupPerspective(
 			Camera.PROJECTION_Z_NEAR,
 			this.depthFar,
-			90.0F,
-			1.0F,
+			Fov360Renderer.captureFov,
+			Fov360Renderer.captureAspect,
 			1.0F);
 	}
 

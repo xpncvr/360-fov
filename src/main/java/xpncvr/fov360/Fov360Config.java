@@ -17,6 +17,12 @@ public final class Fov360Config {
 	public static final int MIN_POINT_FOV = 30;
 	public static final int MAX_POINT_FOV = 400;
 	public static final int MAX_POINTS = 12;
+	public static final float MIN_REAR_OVERLAY_SIZE = 0.05F;
+	public static final int MIN_REAR_OVERLAY_FOV = 30;
+	public static final int MAX_REAR_OVERLAY_FOV = 120;
+	public static final int MIN_REAR_OVERLAY_SCALE = 25;
+	public static final int MAX_REAR_OVERLAY_SCALE = 100;
+	public static final int MAX_REAR_OVERLAY_FPS = 60;
 
 	public boolean splitScreen = false;
 
@@ -29,6 +35,26 @@ public final class Fov360Config {
 	public int antialiasSamples = 4;
 
 	public List<ProjectionPoint> projectionPoints = defaultProjectionPoints();
+
+	public boolean rearOverlay = false;
+
+	public float rearOverlayX = 0.35F;
+
+	public float rearOverlayY = 0.02F;
+
+	public float rearOverlayWidth = 0.30F;
+
+	public float rearOverlayHeight = 0.18F;
+
+	public int rearOverlayFov = 70;
+
+	public int rearOverlayRenderScale = 50;
+
+	public int rearOverlayFps = 0;
+
+	public boolean rearOverlayMirror = true;
+
+	public boolean rearOverlayBorder = true;
 
 	public static final class ProjectionPoint {
 		public int fov;
@@ -90,6 +116,30 @@ public final class Fov360Config {
 		for (ProjectionPoint point : other.projectionPoints) {
 			projectionPoints.add(point.copy());
 		}
+		copyRearOverlayFrom(other);
+	}
+
+	public void copyRearOverlayFrom(Fov360Config other) {
+		rearOverlay = other.rearOverlay;
+		rearOverlayX = other.rearOverlayX;
+		rearOverlayY = other.rearOverlayY;
+		rearOverlayWidth = other.rearOverlayWidth;
+		rearOverlayHeight = other.rearOverlayHeight;
+		rearOverlayFov = other.rearOverlayFov;
+		rearOverlayRenderScale = other.rearOverlayRenderScale;
+		rearOverlayFps = other.rearOverlayFps;
+		rearOverlayMirror = other.rearOverlayMirror;
+		rearOverlayBorder = other.rearOverlayBorder;
+	}
+
+	public void clampRearOverlay() {
+		rearOverlayWidth = Math.clamp(rearOverlayWidth, MIN_REAR_OVERLAY_SIZE, 1.0F);
+		rearOverlayHeight = Math.clamp(rearOverlayHeight, MIN_REAR_OVERLAY_SIZE, 1.0F);
+		rearOverlayX = Math.clamp(rearOverlayX, 0.0F, 1.0F - rearOverlayWidth);
+		rearOverlayY = Math.clamp(rearOverlayY, 0.0F, 1.0F - rearOverlayHeight);
+		rearOverlayFov = Math.clamp(rearOverlayFov, MIN_REAR_OVERLAY_FOV, MAX_REAR_OVERLAY_FOV);
+		rearOverlayRenderScale = Math.clamp(rearOverlayRenderScale, MIN_REAR_OVERLAY_SCALE, MAX_REAR_OVERLAY_SCALE);
+		rearOverlayFps = Math.clamp(rearOverlayFps, 0, MAX_REAR_OVERLAY_FPS);
 	}
 
 	private void normalize() {
@@ -116,6 +166,7 @@ public final class Fov360Config {
 			points.removeLast();
 		}
 		projectionPoints = points.isEmpty() ? defaultProjectionPoints() : points;
+		clampRearOverlay();
 	}
 
 	private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
