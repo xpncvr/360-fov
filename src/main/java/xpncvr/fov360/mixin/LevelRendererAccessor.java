@@ -15,4 +15,10 @@ public interface LevelRendererAccessor {
 	@Mutable
 	@Accessor("entityOutlineTarget")
 	void panini$setEntityOutlineTarget(RenderTarget target);
+
+	@Accessor("currentFrameRendersEntityOutline")
+	boolean panini$getCurrentFrameRendersEntityOutline();
+
+	@Accessor("currentFrameRendersEntityOutline")
+	void panini$setCurrentFrameRendersEntityOutline(boolean value);
 }

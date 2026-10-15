@@ -39,7 +39,7 @@ public abstract class GameRendererMixin {
 	@Inject(method = "renderItemInHand", at = @At("HEAD"), cancellable = true)
 	private void panini$cancelHandDuringCapture(CameraRenderState cameraState, PlayerRenderState playerState,
 			GpuTextureView depthTextureView, CallbackInfo ci) {
-		if (Fov360Renderer.capturing) {
+		if (Fov360Renderer.capturing || Fov360Renderer.suppressHand) {
 			ci.cancel();
 		}
 	}

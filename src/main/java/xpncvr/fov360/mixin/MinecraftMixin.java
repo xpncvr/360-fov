@@ -8,8 +8,10 @@ import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+import xpncvr.fov360.Fov360Config;
 import xpncvr.fov360.Fov360Keys;
 import xpncvr.fov360.Fov360OptionsScreen;
+import xpncvr.fov360.Fov360Renderer;
 
 @Mixin(Minecraft.class)
 public abstract class MinecraftMixin {
@@ -24,6 +26,11 @@ public abstract class MinecraftMixin {
 			if (client.gui.screen() == null) {
 				client.gui.setScreen(new Fov360OptionsScreen(null, options));
 			}
+		}
+		while (Fov360Keys.TOGGLE_REAR_VIEW.consumeClick()) {
+			Fov360Config config = Fov360Renderer.currentConfig();
+			config.rearOverlay = !config.rearOverlay;
+			config.save();
 		}
 	}
 }

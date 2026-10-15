@@ -87,5 +87,6 @@
 	"fov360.blend.smooth": "Smooth",
 
 	"key.fov360.openSettings": "Open 360 FOV Settings",
+	"key.fov360.toggleRearView": "Toggle Rear View",
 	"key.category.fov360.main": "360 FOV"
 }

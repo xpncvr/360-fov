@@ -34,6 +34,7 @@ import net.minecraft.world.level.material.FogType;
 import org.joml.Matrix4f;
 import org.joml.Quaternionf;
 import org.joml.Vector3f;
+import org.joml.Vector4f;
 import xpncvr.fov360.mixin.GameRendererInvoker;
 import xpncvr.fov360.mixin.LevelRendererAccessor;
 
@@ -71,6 +72,8 @@ public final class Fov360Renderer {
 	private static final int OVERLAY_VERTICES = 6;
 
 	private static final float REAR_BORDER_GRAY = 0.08F;
+	private static final Vector4f REAR_BLOCKED_COLOR = new Vector4f(0.0F, 0.0F, 0.0F, 1.0F);
+	private static final Vector4f CLEAR_OUTLINE = new Vector4f(0.0F, 0.0F, 0.0F, 0.0F);
 
 	public static volatile RenderTarget currentTarget = null;
 	public static volatile boolean capturing = false;
@@ -85,6 +88,7 @@ public final class Fov360Renderer {
 	public static volatile float captureAspect = 1.0F;
 	public static volatile float captureCullFov = CUBE_CULL_FOV;
 	public static volatile boolean rearOverlayPreview = false;
+	public static volatile boolean suppressHand = false;
 
 
 	private Fov360Config config = null;
@@ -125,6 +129,7 @@ public final class Fov360Renderer {
 	private int rearHeight = 0;
 	private RenderPipeline overlayPipeline = null;
 	private GpuBuffer uboBufferRear = null;
+	private GpuBuffer uboBufferRearOutline = null;
 	private GpuBuffer overlayUbo = null;
 	private boolean rearValid = false;
 	private float rearCapturedFov = 0.0F;
@@ -354,6 +359,7 @@ public final class Fov360Renderer {
 
 			capturing = true;
 			beginOutlineCapture(client);
+			boolean anyOutline = false;
 
 			for (int k = 0; k < 6; k++) {
 				if (!faceEnabled[k]) {
@@ -364,6 +370,7 @@ public final class Fov360Renderer {
 				captureFacePitch = facePitch(k);
 				currentTarget = faces[k];
 				if (outlineRedirect != null) {
+					RenderSystem.getDevice().createCommandEncoder().clearColorTexture(outlineFaces[k].getColorTexture(), CLEAR_OUTLINE);
 					outlineRedirect.panini$setEntityOutlineTarget(outlineFaces[k]);
 				}
 
@@ -371,6 +378,9 @@ public final class Fov360Renderer {
 				inv.panini$extractCamera(deltaTracker, worldPartialTicks);
 				client.levelExtractor.extract(deltaTracker, realCamera, worldPartialTicks);
 				gameRenderer.renderLevel();
+				if (outlineRedirect != null) {
+					anyOutline |= outlineRedirect.panini$getCurrentFrameRendersEntityOutline();
+				}
 			}
 
 			currentTarget = null;
@@ -382,8 +392,14 @@ public final class Fov360Renderer {
 
 			reproject(client, viewPitch, outH, projW, aspect, split, invert, fovx);
 			reprojectOutline(projW, outH, split, invert, fovx, viewPitch);
-			if (!split) {
+			if (outlineRedirect != null) {
+				outlineRedirect.panini$setCurrentFrameRendersEntityOutline(anyOutline);
+			}
+			suppressHand = split;
+			try {
 				renderHand(gameRenderer);
+			} finally {
+				suppressHand = false;
 			}
 			renderRearOverlay(gameRenderer, deltaTracker, true);
 			return true;
@@ -436,7 +452,10 @@ public final class Fov360Renderer {
 			int h = Math.max(MIN_REAR_SIZE, Math.round((y1 - y0) * scale));
 			ensureRearResources(w, h);
 
-			if (rearCaptureDue(client)) {
+			if (viewBlocked(gameRenderer)) {
+				RenderSystem.getDevice().createCommandEncoder().clearColorTexture(rearTarget.getColorTexture(), REAR_BLOCKED_COLOR);
+				rearValid = false;
+			} else if (rearCaptureDue(client)) {
 				if (!(cubeFresh && reprojectRearFromCube(aspect))) {
 					captureRear(client, gameRenderer, deltaTracker, aspect);
 				}
@@ -449,6 +468,10 @@ public final class Fov360Renderer {
 		} catch (Throwable t) {
 			fail(t);
 		}
+	}
+
+	private static boolean viewBlocked(GameRenderer gameRenderer) {
+		return gameRenderer.gameRenderState().levelRenderState.playerRenderState.blockOverlay != null;
 	}
 
 	private float rearFovx() {
@@ -488,8 +511,28 @@ public final class Fov360Renderer {
 				GpuBuffer.USAGE_UNIFORM | GpuBuffer.USAGE_MAP_WRITE,
 				uboSize);
 		}
+		writeRearUbo(uboBufferRear, aspect, scale, false);
+		CommandEncoder encoder = RenderSystem.getDevice().createCommandEncoder();
+		runReprojectPass(encoder, "fov360 rear reproject", uboBufferRear, faces, rearTarget);
+
+		if (outlineRedirect != null && outlineRedirect.panini$getCurrentFrameRendersEntityOutline()) {
+			if (uboBufferRearOutline == null) {
+				uboBufferRearOutline = RenderSystem.getDevice().createBuffer(
+					() -> "PaniniConfigRearOutline",
+					GpuBuffer.USAGE_UNIFORM | GpuBuffer.USAGE_MAP_WRITE,
+					uboSize);
+			}
+			ensureRearOutlineTarget();
+			writeRearUbo(uboBufferRearOutline, aspect, scale, true);
+			runReprojectPass(encoder, "fov360 rear outline reproject", uboBufferRearOutline, outlineFaces, rearOutlineTarget);
+			rearOutlineTarget.blitAndBlendToTexture(rearTarget.getColorTextureView(), rearTarget.getDepthTextureView());
+		}
+		return true;
+	}
+
+	private void writeRearUbo(GpuBuffer ubo, float aspect, float scale, boolean outline) {
 		float aa = Mth.clamp(config().antialiasSamples, 1, 4);
-		try (GpuBufferSlice.MappedView view = uboBufferRear.map(false, true)) {
+		try (GpuBufferSlice.MappedView view = ubo.map(false, true)) {
 			Std140Builder b = Std140Builder.intoBuffer(view.data());
 			for (int i = 0; i < 6; i++) {
 				b.putMat4f(coordFrames[i]);
@@ -497,14 +540,17 @@ public final class Fov360Renderer {
 			b.putVec4(rearFovx(), aspect, lastViewPitch, aa);
 			b.putVec4((float) rearWidth, (float) rearHeight, 0.0F, 0.0F);
 			b.putVec4(scale, 0.0F, 0.0F, 0.0F);
-			b.putVec4(0.0F, 0.0F, 0.0F, 1.0F);
+			b.putVec4(0.0F, outline ? 1.0F : 0.0F, 0.0F, 1.0F);
 			b.putVec4(en(0), en(1), en(2), en(3));
 			b.putVec4(en(4), en(5), 0.0F, 0.0F);
 			b.putVec4(Fov360Projection.RECTILINEAR.ordinal(), Fov360Projection.RECTILINEAR.ordinal(), 0.0F, 0.0F);
 		}
-		CommandEncoder encoder = RenderSystem.getDevice().createCommandEncoder();
-		runReprojectPass(encoder, "fov360 rear reproject", uboBufferRear, faces, rearTarget);
-		return true;
+	}
+
+	private void ensureRearOutlineTarget() {
+		if (rearOutlineTarget == null) {
+			rearOutlineTarget = new TextureTarget("fov360_rear_outline", rearWidth, rearHeight, GpuFormat.RGBA8_UNORM, GpuFormat.D32_FLOAT);
+		}
 	}
 
 	private void captureRear(Minecraft client, GameRenderer gameRenderer, DeltaTracker deltaTracker, float aspect) {
@@ -517,18 +563,20 @@ public final class Fov360Renderer {
 
 		q(qRear, rearYaw, rearPitch);
 		captureViewYaw = rearYaw;
-		captureViewForward.set(0.0F, 0.0F, -1.0F).rotate(qRear);
+		q(qPlayer, frameViewYaw, frameViewPitch);
+		captureViewForward.set(0.0F, 0.0F, -1.0F).rotate(qPlayer);
 		capturedFogType = realCamera.getFluidInCamera();
 
 		GameRendererInvoker inv = (GameRendererInvoker) gameRenderer;
 		LevelRendererAccessor lr = (LevelRendererAccessor) client.levelRenderer;
 		RenderTarget realOutline = lr.panini$getEntityOutlineTarget();
-		if (realOutline != null && rearOutlineTarget == null) {
-			rearOutlineTarget = new TextureTarget("fov360_rear_outline", rearWidth, rearHeight, GpuFormat.RGBA8_UNORM, GpuFormat.D32_FLOAT);
+		boolean realRendersOutline = lr.panini$getCurrentFrameRendersEntityOutline();
+		if (realOutline != null) {
+			ensureRearOutlineTarget();
 		}
 
 		capturing = true;
-		captureOutlines = false;
+		captureOutlines = realOutline != null;
 		captureFace = REAR_FACE;
 		captureFaceYaw = rearYaw;
 		captureFacePitch = rearPitch;
@@ -544,15 +592,20 @@ public final class Fov360Renderer {
 			inv.panini$extractCamera(deltaTracker, worldPartialTicks);
 			client.levelExtractor.extract(deltaTracker, realCamera, worldPartialTicks);
 			gameRenderer.renderLevel();
+			if (realOutline != null && lr.panini$getCurrentFrameRendersEntityOutline()) {
+				rearOutlineTarget.blitAndBlendToTexture(rearTarget.getColorTextureView(), rearTarget.getDepthTextureView());
+			}
 		} finally {
 			currentTarget = null;
 			capturing = false;
+			captureOutlines = false;
 			captureFov = CUBE_FACE_FOV;
 			captureAspect = 1.0F;
 			captureCullFov = CUBE_CULL_FOV;
 			if (realOutline != null) {
 				lr.panini$setEntityOutlineTarget(realOutline);
 			}
+			lr.panini$setCurrentFrameRendersEntityOutline(realRendersOutline);
 			realCamera.update(deltaTracker);
 			inv.panini$extractCamera(deltaTracker, worldPartialTicks);
 		}
@@ -861,6 +914,7 @@ public final class Fov360Renderer {
 		rearHeight = 0;
 		overlayPipeline = null;
 		uboBufferRear = null;
+		uboBufferRearOutline = null;
 		overlayUbo = null;
 		rearValid = false;
 		resourceDevice = device;

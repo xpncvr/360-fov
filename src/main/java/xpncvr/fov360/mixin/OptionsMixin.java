@@ -25,9 +25,11 @@ public abstract class OptionsMixin {
 
 	@Inject(method = "load", at = @At("HEAD"))
 	private void fov360$registerKeys(CallbackInfo ci) {
-		if (!Arrays.asList(keyMappings).contains(Fov360Keys.OPEN_SETTINGS)) {
-			keyMappings = Arrays.copyOf(keyMappings, keyMappings.length + 1);
-			keyMappings[keyMappings.length - 1] = Fov360Keys.OPEN_SETTINGS;
+		for (KeyMapping key : Fov360Keys.ALL) {
+			if (!Arrays.asList(keyMappings).contains(key)) {
+				keyMappings = Arrays.copyOf(keyMappings, keyMappings.length + 1);
+				keyMappings[keyMappings.length - 1] = key;
+			}
 		}
 	}
 
