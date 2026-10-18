@@ -14,9 +14,11 @@ import net.minecraft.network.chat.CommonComponents;
 import net.minecraft.network.chat.Component;
 
 import java.util.List;
+import java.util.Locale;
 
 public final class Fov360OptionsScreen extends OptionsSubScreen {
 	private static final int FACE_SIZE_STEP = 128;
+	private static final float PARAMETER_STEPS = 20.0F;
 	private static final Fov360Config DEFAULTS = new Fov360Config();
 
 	private final Fov360Config config = Fov360Renderer.currentConfig();
@@ -53,6 +55,22 @@ public final class Fov360OptionsScreen extends OptionsSubScreen {
 				new OptionInstance.Enum<>(List.of(1, 2, 4), Codec.INT),
 				config.antialiasSamples >= 4 ? 4 : config.antialiasSamples >= 2 ? 2 : 1,
 				value -> config.antialiasSamples = value)
+		);
+
+		list.addHeader(Component.translatable("fov360.options.projectionParameters"));
+		list.addSmall(
+			new OptionInstance<>("fov360.options.paniniD",
+				tooltip("fov360.options.paniniD.tooltip", Component.literal(parameterLabel(DEFAULTS.paniniD))),
+				(caption, value) -> Options.genericValueLabel(caption, Component.literal(parameterLabel(value / PARAMETER_STEPS))),
+				new OptionInstance.IntRange(0, Math.round(Fov360Config.MAX_PANINI_D * PARAMETER_STEPS)),
+				Math.round(config.paniniD * PARAMETER_STEPS),
+				value -> config.paniniD = value / PARAMETER_STEPS),
+			new OptionInstance<>("fov360.options.stereographicK",
+				tooltip("fov360.options.stereographicK.tooltip", Component.literal(parameterLabel(DEFAULTS.stereographicK))),
+				(caption, value) -> Options.genericValueLabel(caption, Component.literal(parameterLabel(value / PARAMETER_STEPS))),
+				new OptionInstance.IntRange(0, Math.round(Fov360Config.MAX_STEREOGRAPHIC_K * PARAMETER_STEPS)),
+				Math.round(config.stereographicK * PARAMETER_STEPS),
+				value -> config.stereographicK = value / PARAMETER_STEPS)
 		);
 
 		list.addHeader(Component.translatable("fov360.options.rearView"));
@@ -106,6 +124,10 @@ public final class Fov360OptionsScreen extends OptionsSubScreen {
 
 	static Component defaultLine(Component value) {
 		return Component.translatable("fov360.options.default", value).withStyle(ChatFormatting.GRAY);
+	}
+
+	static String parameterLabel(float value) {
+		return String.format(Locale.ROOT, "%.2f", value);
 	}
 
 	static Component onOff(boolean value) {

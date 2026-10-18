@@ -18,6 +18,8 @@ layout(std140) uniform PaniniConfig {
     vec4 Scales2;
     vec4 FaceEnabled[2];
     vec4 Blend;
+    vec4 ProjParams;
+    vec4 FaceTan[6];
 };
 
 #define fovx (Params.x)
@@ -61,9 +63,9 @@ vec3 standard_ray(vec2 lenscoord) {
 vec3 panini_inverse(vec2 lenscoord) {
   float x = lenscoord.x;
   float y = lenscoord.y;
-  float d = 1.0;
+  float d = ProjParams.x;
   float k = x*x/((d+1.0)*(d+1.0));
-  float dscr = k*k*d*d - (k+1.0)*(k*d*d-1.0);
+  float dscr = max(0.0, k*k*d*d - (k+1.0)*(k*d*d-1.0));
   float clon = (-k*d+sqrt(dscr))/(k+1.0);
   float S = (d+1.0)/(d+clon);
   float lon = atan(x,S*clon);
@@ -110,9 +112,9 @@ vec3 equirect_ray(vec2 lenscoord) {
 vec3 stereographic_inverse(vec2 lenscoord) {
   float x = lenscoord.x;
   float y = lenscoord.y;
-  float angleScale = 0.5;
+  float angleScale = ProjParams.y;
   float r = length(lenscoord);
-  float theta = atan(r)/angleScale;
+  float theta = angleScale < 0.001 ? r : atan(r)/angleScale;
   float s = sin(theta);
   return vec3(x/r*s, y/r*s, cos(theta));
 }
@@ -204,11 +206,7 @@ vec4 ray_to_color(vec3 ray) {
     return background();
   }
   vec3 ray2 = mat3(CoordFrames[i]) * ray;
-  const float d = 0.5;
-  vec2 uv = vec2(
-    -ray2.x / ray2.z * d + 0.5,
-    -ray2.y / ray2.z * d + 0.5
-  );
+  vec2 uv = -ray2.xy / ray2.z * FaceTan[i].xy * 0.5 + 0.5;
   uv = clamp(uv, 0.0, 1.0);
   return texuv_color(i, uv);
 }

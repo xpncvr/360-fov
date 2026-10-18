@@ -10,7 +10,7 @@ Minecraft mod that extends the FOV range from **110° to 400°** using a combina
 
 ## How it works
 
-The mod renders the surrounding world into a six-face cubemap and reprojects it in a single shader pass.
+The mod renders the surrounding world into up to six capture views and reprojects them in a single shader pass. Each frame it picks between a six-face cubemap and one to three perspective strips that turn with the camera, sized from how much detail each part of the screen needs. Strips are used when they give at least the cubemap's detail for at most 1.5 times its pixels, which is usually the case from about 120° to 200°.
 
 Different projections are blended together as the FOV increases. By default:
 
@@ -32,7 +32,7 @@ Wherever the view is pure Rectilinear, the mod hands the frame back to Minecraft
 
 The mod uses the vanilla FOV slider. Set the FOV in **Video Settings** and the projection will update automatically.
 
-The thresholds can be changed in game under **360 FOV Settings → FOV Thresholds...**. The bar covers every FOV from 30° to 400°. Each point on the bar sets the projection used from that horizontal FOV upward, and the view blends into the next point's projection between two points. Click the bar to add a point (up to 12), drag to move one, and right-click to remove one. The available projections are Rectilinear, Panini/Stereographic (the pitch-dependent hybrid above), Panini, Stereographic, Fisheye, Mercator and Equirectangular. Blends can be Ease Out, Linear or Smooth. Rectilinear stops widening above 170°, and Panini and Stereographic stop widening above 330°.
+The thresholds can be changed in game under **360 FOV Settings → FOV Thresholds...**. The bar covers every FOV from 30° to 400°. Each point on the bar sets the projection used from that horizontal FOV upward, and the view blends into the next point's projection between two points. Click the bar to add a point (up to 12), drag to move one, and right-click to remove one. The available projections are Rectilinear, Panini/Stereographic (the pitch-dependent hybrid above), Panini, Stereographic, Fisheye, Mercator and Equirectangular. Blends can be Ease Out, Linear or Smooth. Rectilinear stops widening above 170°. Panini and Stereographic stop widening above 330° at their default parameters, and the limit moves with **Panini d** and **Stereographic k**.
 
 ## Configuration
 
@@ -57,9 +57,11 @@ More screenshots in the Modrinth gallery [here](https://modrinth.com/mod/360-fov
   | ---------------------- | :-----: | ------------------------------------------------------------------------------------------------------------------------------------------------- |
   | `splitScreen`          | `false` | Splits the window into forward and rear halves, each using the full FOV. Intended for two monitors at 180° to create a seamless full-sphere view. |
   | `invertSplitScreen`    | `false` | Swaps the forward/rear halves and the side on which the GUI is displayed.                                                                         |
-  | `faceSizeCap`          |  `2048` | Maximum resolution of each cubemap face. Higher values improve quality at high FOVs but increase VRAM usage. Range: `256–4096`.                   |
+  | `faceSizeCap`          |  `2048` | Maximum width and height of each capture view. Higher values improve quality at high FOVs but increase VRAM usage. Range: `256–4096`.                   |
   | `lowResTopBottomFaces` | `false` | Uses lower resolution for the top and bottom capture faces, except for the face currently being viewed.                                           |
   | `antialiasSamples`     |   `4`   | Supersampling used during reprojection. Valid values: `1`, `2`, or `4`.                                                                           |
+  | `paniniD`              |   `1.0` | Strength of the Panini projection. `0` is Rectilinear, `1` is standard Panini, and higher values squeeze the edges more. Range: `0–2`. |
+  | `stereographicK`       |   `0.5` | Angle scale of the Stereographic projection. `1` is Rectilinear, `0.5` is standard Stereographic, and lower values move towards Fisheye. Range: `0–1`. |
   | `projectionPoints`     |   see above   | List of `{ "fov", "projection", "blend" }` points, `fov` from `30` to `400`. `projection` is one of `RECTILINEAR`, `PANINI_STEREOGRAPHIC`, `PANINI`, `STEREOGRAPHIC`, `FISHEYE`, `MERCATOR`, `EQUIRECTANGULAR`. `blend` is `EASE_OUT`, `LINEAR` or `SMOOTH` and controls the blend from the previous point. |
   | `rearOverlay`          | `false` | Shows a rear view window on top of the game. Ignored while `splitScreen` is on. Hidden with F1. |
   | `rearOverlayX`, `rearOverlayY` | `0.35`, `0.02` | Top-left corner of the rear view window as a fraction of the window size. |

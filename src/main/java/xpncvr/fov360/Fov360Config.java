@@ -23,6 +23,8 @@ public final class Fov360Config {
 	public static final int MIN_REAR_OVERLAY_SCALE = 25;
 	public static final int MAX_REAR_OVERLAY_SCALE = 100;
 	public static final int MAX_REAR_OVERLAY_FPS = 60;
+	public static final float MAX_PANINI_D = 2.0F;
+	public static final float MAX_STEREOGRAPHIC_K = 1.0F;
 
 	public boolean splitScreen = false;
 
@@ -33,6 +35,10 @@ public final class Fov360Config {
 	public boolean lowResTopBottomFaces = false;
 
 	public int antialiasSamples = 4;
+
+	public float paniniD = 1.0F;
+
+	public float stereographicK = 0.5F;
 
 	public List<ProjectionPoint> projectionPoints = defaultProjectionPoints();
 
@@ -112,6 +118,8 @@ public final class Fov360Config {
 		faceSizeCap = other.faceSizeCap;
 		lowResTopBottomFaces = other.lowResTopBottomFaces;
 		antialiasSamples = other.antialiasSamples;
+		paniniD = other.paniniD;
+		stereographicK = other.stereographicK;
 		projectionPoints.clear();
 		for (ProjectionPoint point : other.projectionPoints) {
 			projectionPoints.add(point.copy());
@@ -166,6 +174,8 @@ public final class Fov360Config {
 			points.removeLast();
 		}
 		projectionPoints = points.isEmpty() ? defaultProjectionPoints() : points;
+		paniniD = Math.clamp(paniniD, 0.0F, MAX_PANINI_D);
+		stereographicK = Math.clamp(stereographicK, 0.0F, MAX_STEREOGRAPHIC_K);
 		clampRearOverlay();
 	}
 
