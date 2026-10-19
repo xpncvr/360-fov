@@ -57,6 +57,10 @@ public final class Fov360Renderer {
 
 	private static final int MAX_SAMPLES = GRID_SAMPLES + 4 * (EDGE_SAMPLES + 1);
 
+	private static final int CENTER_GRID_MIN = MASK_GRID * 3 / 8;
+
+	private static final int CENTER_GRID_MAX = MASK_GRID * 5 / 8;
+
 	private static final float SAMPLE_STEP_PX = 2.0F;
 
 	private static final double DENSITY_MARGIN = 1.05;
@@ -124,7 +128,8 @@ public final class Fov360Renderer {
 	public static volatile float captureViewYaw = 0.0F;
 	public static volatile float captureFaceYaw = 0.0F;
 	public static volatile float captureFacePitch = 0.0F;
-	public static volatile float captureFaceRoll = 0.0F;
+	public static volatile boolean captureUseRotation = false;
+	public static final Quaternionf captureRotation = new Quaternionf();
 	public static final Vector3f captureViewForward = new Vector3f(0.0F, 0.0F, -1.0F);
 	public static volatile FogType capturedFogType = FogType.NONE;
 	public static volatile float captureFov = CUBE_FACE_FOV;
@@ -161,17 +166,22 @@ public final class Fov360Renderer {
 	private final double[] layoutTanY = new double[6];
 	private final int[] layoutWidths = new int[6];
 	private final int[] layoutHeights = new int[6];
+	private final double[] layoutDelivered = new double[6];
 	private double layoutWorst = 0.0;
+	private double layoutCenter = 0.0;
 	private final double[] layoutPsi = new double[6];
 	private final double[] layoutTanX = new double[6];
 	private final double[] layoutCosts = new double[MAX_STRIPS + 1];
 	private final double[] layoutWorsts = new double[MAX_STRIPS + 1];
+	private final double[] layoutCenters = new double[MAX_STRIPS + 1];
 
 	private final float[] samples = new float[MAX_SAMPLES * 3];
 	private final float[] samplesX = new float[GRID_SAMPLES * 3];
 	private final float[] samplesY = new float[GRID_SAMPLES * 3];
 	private final boolean[] sampleValid = new boolean[MAX_SAMPLES];
 	private final boolean[] sampleDiffValid = new boolean[GRID_SAMPLES];
+	private final double[] sampleNeed = new double[GRID_SAMPLES];
+	private final int[] sampleTile = new int[GRID_SAMPLES];
 	private int sampleCount = 0;
 	private float sampleStep = 0.0F;
 	private float sampleProjW = 1.0F;
@@ -452,13 +462,15 @@ public final class Fov360Renderer {
 					qTiles[k].getEulerAnglesYXZ(eulerTmp);
 					captureFaceYaw = (float) Math.toDegrees(Math.PI - eulerTmp.y);
 					captureFacePitch = (float) -Math.toDegrees(eulerTmp.x);
-					captureFaceRoll = eulerTmp.z;
+					captureRotation.set(qTiles[k]);
+					captureUseRotation = true;
 					captureFov = (float) Math.toDegrees(2.0 * Math.atan(tileTanY[k]));
 					captureAspect = tileTanX[k] / tileTanY[k];
 					captureCullFov = Math.min(captureFov + REAR_CULL_MARGIN, MAX_CULL_FOV);
 				} else {
 					captureFaceYaw = faceYaw(viewYaw, k);
 					captureFacePitch = facePitch(k);
+					captureUseRotation = false;
 				}
 				currentTarget = faces[k];
 				if (outlineRedirect != null) {
@@ -477,7 +489,7 @@ public final class Fov360Renderer {
 
 			currentTarget = null;
 			capturing = false;
-			captureFaceRoll = 0.0F;
+			captureUseRotation = false;
 			captureFov = CUBE_FACE_FOV;
 			captureAspect = 1.0F;
 			captureCullFov = CUBE_CULL_FOV;
@@ -505,7 +517,7 @@ public final class Fov360Renderer {
 		} finally {
 			currentTarget = null;
 			capturing = false;
-			captureFaceRoll = 0.0F;
+			captureUseRotation = false;
 			captureFov = CUBE_FACE_FOV;
 			captureAspect = 1.0F;
 			captureCullFov = CUBE_CULL_FOV;
@@ -883,6 +895,7 @@ public final class Fov360Renderer {
 		for (int n = 0; n <= MAX_STRIPS; n++) {
 			layoutCosts[n] = n > 0 && split ? Double.NaN : evaluateLayout(n, fovx, pitchDeg);
 			layoutWorsts[n] = layoutWorst;
+			layoutCenters[n] = layoutCenter;
 		}
 		int best = 0;
 		for (int n = 1; n <= MAX_STRIPS; n++) {
@@ -916,13 +929,17 @@ public final class Fov360Renderer {
 	private boolean stripsEligible(int n) {
 		return !Double.isNaN(layoutCosts[n])
 			&& layoutWorsts[n] >= layoutWorsts[0] - LAYOUT_WORST_TOLERANCE
+			&& layoutCenters[n] >= Math.min(layoutCenters[0], 1.0) - LAYOUT_WORST_TOLERANCE
 			&& layoutCosts[n] <= layoutCosts[0] * STRIP_COST_BUDGET;
 	}
 
 	private double evaluateLayout(int strips, float fovx, float pitchDeg) {
 		layoutWorst = 0.0;
+		layoutCenter = 0.0;
 		Arrays.fill(layoutEnabled, false);
 		Arrays.fill(layoutDensity, 0.0);
+		Arrays.fill(layoutDelivered, 0.0);
+		Arrays.fill(sampleNeed, 0.0);
 		Arrays.fill(layoutTanY, 0.0);
 		Arrays.fill(layoutWidths, 0);
 		Arrays.fill(layoutHeights, 0);
@@ -975,7 +992,9 @@ public final class Fov360Renderer {
 			}
 			layoutTanY[k] = Math.max(layoutTanY[k], Math.abs(local.y / local.z));
 			if (i < GRID_SAMPLES && sampleDiffValid[i]) {
-				layoutDensity[k] = Math.max(layoutDensity[k], requiredDensity(layoutFrames[k], i));
+				sampleTile[i] = k;
+				sampleNeed[i] = requiredDensity(layoutFrames[k], i);
+				layoutDensity[k] = Math.max(layoutDensity[k], sampleNeed[i]);
 			}
 		}
 		if (strips == 0) {
@@ -1017,10 +1036,25 @@ public final class Fov360Renderer {
 			layoutTanY[k] = tanY;
 			layoutWidths[k] = tw;
 			layoutHeights[k] = th;
+			layoutDelivered[k] = Math.min(tw / (2.0 * tanX), th / (2.0 * tanY));
 			cost += (double) tw * th + PASS_COST_PIXELS;
 		}
 		layoutWorst = worst;
+		layoutCenter = centerRatio();
 		return cost;
+	}
+
+	private double centerRatio() {
+		double ratio = Double.MAX_VALUE;
+		for (int iy = CENTER_GRID_MIN; iy <= CENTER_GRID_MAX; iy++) {
+			for (int ix = CENTER_GRID_MIN; ix <= CENTER_GRID_MAX; ix++) {
+				int i = iy * (MASK_GRID + 1) + ix;
+				if (sampleNeed[i] > 0.0) {
+					ratio = Math.min(ratio, layoutDelivered[sampleTile[i]] / sampleNeed[i]);
+				}
+			}
+		}
+		return ratio == Double.MAX_VALUE ? 1.0 : ratio;
 	}
 
 	private int nearestTile(int i, int tiles) {

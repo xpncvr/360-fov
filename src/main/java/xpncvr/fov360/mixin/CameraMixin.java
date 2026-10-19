@@ -8,12 +8,13 @@ import net.minecraft.client.renderer.culling.Frustum;
 import net.minecraft.world.level.material.FogType;
 import net.minecraft.world.phys.Vec3;
 import org.joml.Matrix4f;
+import org.joml.Quaternionf;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
-import org.spongepowered.asm.mixin.injection.ModifyArg;
+import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 import xpncvr.fov360.Fov360Renderer;
@@ -72,12 +73,14 @@ public abstract class CameraMixin {
 			1.0F);
 	}
 
-	@ModifyArg(
+	@Redirect(
 		method = "setRotation",
-		at = @At(value = "INVOKE", target = "Lorg/joml/Quaternionf;rotationYXZ(FFF)Lorg/joml/Quaternionf;"),
-		index = 2)
-	private float panini$captureRoll(float roll) {
-		return Fov360Renderer.capturing ? Fov360Renderer.captureFaceRoll : roll;
+		at = @At(value = "INVOKE", target = "Lorg/joml/Quaternionf;rotationYXZ(FFF)Lorg/joml/Quaternionf;"))
+	private Quaternionf panini$captureRotation(Quaternionf rotation, float yaw, float pitch, float roll) {
+		if (Fov360Renderer.capturing && Fov360Renderer.captureUseRotation) {
+			return rotation.set(Fov360Renderer.captureRotation);
+		}
+		return rotation.rotationYXZ(yaw, pitch, roll);
 	}
 
 	@Inject(method = "createProjectionMatrixForCulling", at = @At("HEAD"), cancellable = true)
